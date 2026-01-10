@@ -81,15 +81,26 @@ def draw_board(hex_list):
         poly = Polygon(corners, facecolor=COLORS[h.res], edgecolor="black", lw=2)
         ax.add_patch(poly)
 
+        
+
         if h.num is not None:
+
+            font_relative_size =  28-int(abs((h.num)-7.0))*2.5
+            color = "#000000"
+
+            if h.num == 8 or h.num == 6:
+                color = "#ffffff"
+            
+            
             ax.text(
                 x,
                 y,
                 str(h.num),
                 ha="center",
                 va="center",
-                fontsize=14,
-                fontweight="bold",
+                fontsize=font_relative_size,
+                fontweight="extra bold",
+                color=color
             )
 
     limit = 4.5
