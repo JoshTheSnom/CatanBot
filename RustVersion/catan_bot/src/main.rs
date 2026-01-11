@@ -1,6 +1,7 @@
 use eframe::egui;
 use egui::{Color32, Pos2, Stroke};
 
+#[derive(Clone, Copy)]
 struct Hex {
     id: u8,
     q: i32,
@@ -9,6 +10,7 @@ struct Hex {
     num: Option<u8>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Resource {
     Wood,
     Brick,
@@ -18,55 +20,55 @@ enum Resource {
     Desert,
 }
 
-const HEXES: [Hex; 19] = [
+const DEFAULT_HEXES: [Hex; 19] = [
     Hex {
         id: 1,
         res: Resource::Ore,
         num: Some(10),
-        q: -2,
-        r: 2,
+        q: 0,
+        r: -2,
     },
     Hex {
         id: 2,
         res: Resource::Sheep,
         num: Some(2),
-        q: -1,
-        r: 2,
+        q: 1,
+        r: -2,
     },
     Hex {
         id: 3,
         res: Resource::Wood,
         num: Some(9),
-        q: 0,
-        r: 2,
+        q: 2,
+        r: -2,
     },
     Hex {
         id: 4,
         res: Resource::Wheat,
         num: Some(12),
-        q: -2,
-        r: 1,
+        q: -1,
+        r: -1,
     },
     Hex {
         id: 5,
         res: Resource::Brick,
         num: Some(6),
-        q: -1,
-        r: 1,
+        q: 0,
+        r: -1,
     },
     Hex {
         id: 6,
         res: Resource::Sheep,
         num: Some(4),
-        q: 0,
-        r: 1,
+        q: 1,
+        r: -1,
     },
     Hex {
         id: 7,
         res: Resource::Brick,
         num: Some(10),
-        q: 1,
-        r: 1,
+        q: 2,
+        r: -1,
     },
     Hex {
         id: 8,
@@ -107,50 +109,50 @@ const HEXES: [Hex; 19] = [
         id: 13,
         res: Resource::Wood,
         num: Some(8),
-        q: -1,
-        r: -1,
+        q: -2,
+        r: 1,
     },
     Hex {
         id: 14,
         res: Resource::Ore,
         num: Some(3),
-        q: 0,
-        r: -1,
+        q: -1,
+        r: 1,
     },
     Hex {
         id: 15,
         res: Resource::Wheat,
         num: Some(4),
-        q: 1,
-        r: -1,
+        q: 0,
+        r: 1,
     },
     Hex {
         id: 16,
         res: Resource::Sheep,
         num: Some(5),
-        q: 2,
-        r: -1,
+        q: 1,
+        r: 1,
     },
     Hex {
         id: 17,
         res: Resource::Brick,
         num: Some(5),
-        q: 0,
-        r: -2,
+        q: -2,
+        r: 2,
     },
     Hex {
         id: 18,
         res: Resource::Wheat,
         num: Some(6),
-        q: 1,
-        r: -2,
+        q: -1,
+        r: 2,
     },
     Hex {
         id: 19,
         res: Resource::Sheep,
         num: Some(11),
-        q: 2,
-        r: -2,
+        q: 0,
+        r: 2,
     },
 ];
 
@@ -196,7 +198,7 @@ fn pip_count(num: u8) -> usize {
 fn draw_pips(painter: &egui::Painter, center: Pos2, num: u8, size: f32, color: Color32) {
     let count = pip_count(num);
     let radius = size * 0.03;
-    let spacing = radius * 2.8; 
+    let spacing = radius * 2.8;
     let y_offset = size * 0.35;
 
     let total_width = (count as f32 - 1.0) * spacing;
@@ -210,17 +212,72 @@ fn draw_pips(painter: &egui::Painter, center: Pos2, num: u8, size: f32, color: C
     }
 }
 
-struct CatanApp;
+struct CatanApp {
+    hexes: Vec<Hex>,
+    selected_hex: usize,
+}
+
+impl CatanApp {
+    fn new() -> Self {
+        Self {
+            hexes: DEFAULT_HEXES.to_vec(),
+            selected_hex: 0,
+        }
+    }
+}
 
 impl eframe::App for CatanApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        egui::SidePanel::right("editor").show(ctx, |ui| {
+            ui.heading("Board editor");
+
+            egui::ComboBox::from_label("Select Hex")
+                .selected_text(format!("Hex {}", self.hexes[self.selected_hex].id))
+                .show_ui(ui, |ui| {
+                    for (i, h) in self.hexes.iter().enumerate() {
+                        ui.selectable_value(&mut self.selected_hex, i, format!("Hex {}", h.id));
+                    }
+                });
+
+            let hex = &mut self.hexes[self.selected_hex];
+
+            ui.separator();
+            ui.label("Resource");
+
+            egui::ComboBox::from_id_salt("resource")
+                .selected_text(format!("{:?}", hex.res))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut hex.res, Resource::Wood, "Wood");
+                    ui.selectable_value(&mut hex.res, Resource::Brick, "Brick");
+                    ui.selectable_value(&mut hex.res, Resource::Sheep, "Sheep");
+                    ui.selectable_value(&mut hex.res, Resource::Wheat, "Wheat");
+                    ui.selectable_value(&mut hex.res, Resource::Ore, "Ore");
+                    ui.selectable_value(&mut hex.res, Resource::Desert, "Desert");
+                });
+
+            ui.separator();
+            ui.label("Number");
+
+            if hex.res == Resource::Desert {
+                hex.num = None;
+                ui.label("Desert has no number");
+            } else {
+                let mut num = hex.num.unwrap_or(6);
+                ui.add(egui::Slider::new(&mut num, 2..=12).clamping(egui::SliderClamping::Always));
+                if num == 7 {
+                    num = 6;
+                }
+                hex.num = Some(num);
+            }
+        });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             let painter = ui.painter();
             let hex_size = 60.0;
 
             let center = ui.available_rect_before_wrap().center();
 
-            for h in HEXES {
+            for h in &self.hexes {
                 let pos = axial_to_pixel(h.q, h.r, hex_size) + center.to_vec2();
 
                 let corners = hex_corners(pos, hex_size);
@@ -256,6 +313,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Catan Board",
         options,
-        Box::new(|_cc| Ok(Box::new(CatanApp))),
+        Box::new(|_cc| Ok(Box::new(CatanApp::new()))),
     )
 }
