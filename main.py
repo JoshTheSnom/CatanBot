@@ -85,7 +85,7 @@ def draw_board(hex_list):
 
         if h.num is not None:
 
-            font_relative_size =  28-int(abs((h.num)-7.0))*2.5
+            font_relative_size = 28-int(abs((h.num)-7.0))*2.5
             color = "#000000"
 
             if h.num == 8 or h.num == 6:
