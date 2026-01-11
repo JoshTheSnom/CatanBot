@@ -599,6 +599,7 @@ dependencies = [
  "env_logger",
  "log",
  "serde",
+ "thiserror 2.0.17",
  "wasm-bindgen-futures",
  "web-sys",
 ]

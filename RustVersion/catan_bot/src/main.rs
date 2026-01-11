@@ -1,7 +1,8 @@
 use eframe::egui;
 use egui::{Color32, Pos2, Stroke};
+use thiserror::Error;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct Hex {
     id: u8,
     q: i32,
@@ -10,14 +11,43 @@ struct Hex {
     num: Option<u8>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Debug, Error)]
+enum InputHexParseError {
+    #[error("resource with name '{0}' doesn't exist.")]
+    InvalidResource(String),
+    #[error("number '{0}' is invalid.")]
+    InvalidNumber(u8),
+    #[error("invalid hex format at tile {0}: '{1}'")]
+    InvalidFormat(usize, String),
+    #[error("board must have exactly 19 tiles.")]
+    InvalidInputLength,
+}
+
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
 enum Resource {
     Wood,
     Brick,
     Sheep,
     Wheat,
     Ore,
+    #[default]
     Desert,
+}
+
+impl TryInto<Resource> for &str {
+    type Error = InputHexParseError;
+
+    fn try_into(self) -> Result<Resource, Self::Error> {
+        match self.to_lowercase().as_str() {
+            "wood" => Ok(Resource::Wood),
+            "brick" => Ok(Resource::Brick),
+            "sheep" => Ok(Resource::Sheep),
+            "wheat" => Ok(Resource::Wheat),
+            "ore" => Ok(Resource::Ore),
+            "desert" => Ok(Resource::Desert),
+            other => Err(InputHexParseError::InvalidResource(other.to_string())),
+        }
+    }
 }
 
 const DEFAULT_HEXES: [Hex; 19] = [
@@ -212,9 +242,54 @@ fn draw_pips(painter: &egui::Painter, center: Pos2, num: u8, size: f32, color: C
     }
 }
 
+fn parse_import(text: &str) -> Result<Vec<Hex>, InputHexParseError> {
+    let entries: Vec<&str> = text.split(',').map(|s| s.trim()).collect();
+    if entries.len() != 19 {
+        return Err(InputHexParseError::InvalidInputLength); // must have exactly 19 tiles... may do an alternative later
+    }
+
+    let mut result = Vec::with_capacity(19);
+
+    for (i, entry) in entries.iter().enumerate() {
+        let parts: Vec<&str> = entry.split_whitespace().collect();
+        let hex = match parts.len() {
+            1 if parts[0].eq_ignore_ascii_case("desert") => Hex {
+                id: (i + 1) as u8,
+                res: Resource::Desert,
+                num: None,
+                q: DEFAULT_HEXES[i].q,
+                r: DEFAULT_HEXES[i].r,
+            },
+            2 => {
+                let res: Resource = parts[0].try_into()?;
+                let num: u8 = parts[1]
+                    .parse()
+                    .map_err(|_| InputHexParseError::InvalidFormat(i + 1, entry.to_string()))?;
+
+                if num < 2 || num > 12 || num == 7 {
+                    return Err(InputHexParseError::InvalidNumber(num));
+                }
+
+                Hex {
+                    id: (i + 1) as u8,
+                    res,
+                    num: Some(num),
+                    q: DEFAULT_HEXES[i].q,
+                    r: DEFAULT_HEXES[i].r,
+                }        
+            }
+            _ => return Err(InputHexParseError::InvalidFormat(i + 1, entry.to_string())),
+        };
+        result.push(hex);
+    }
+    Ok(result)
+}
+
 struct CatanApp {
     hexes: Vec<Hex>,
     selected_hex: usize,
+    import_text: String,
+    import_error: Option<String>,
 }
 
 impl CatanApp {
@@ -222,6 +297,8 @@ impl CatanApp {
         Self {
             hexes: DEFAULT_HEXES.to_vec(),
             selected_hex: 0,
+            import_text: String::new(),
+            import_error: None,
         }
     }
 }
@@ -268,6 +345,27 @@ impl eframe::App for CatanApp {
                     num = 6;
                 }
                 hex.num = Some(num);
+            }
+
+            ui.separator();
+            ui.label("Import Board (comma-separated)");
+            ui.text_edit_multiline(&mut self.import_text);
+
+            if ui.button("Apply Import").clicked() {
+                match parse_import(&self.import_text) {
+                    Ok(new_board) => {
+                        self.hexes = new_board;
+                        self.selected_hex = 0;
+                        self.import_error = None;
+                    }
+                    Err(e) => {
+                        self.import_error = Some(e.to_string());
+                    }
+                }
+            }
+
+            if let Some(err) = &self.import_error {
+                ui.colored_label(Color32::RED, err);
             }
         });
 
@@ -316,3 +414,10 @@ fn main() -> eframe::Result<()> {
         Box::new(|_cc| Ok(Box::new(CatanApp::new()))),
     )
 }
+
+// TODO:
+// - Make numbers bold (probably have to import a ttf)
+// - Allow importing using text (like "ore 10, sheep 2, wood 9")
+// - Calculate and display the "value" of each intersection (based on pips)
+// - Random board generator, do the spiral thing (A-R counterclockwise) (5 2 6 3 8 10 9 12 11 4 8 10 9 4 5 6 3 11)
+// - Actual bot stuff: Set player count and colors, place buildings and roads
