@@ -1,7 +1,24 @@
 use eframe::egui;
 use egui::{Color32, Pos2, Stroke};
+use std::collections::BTreeSet;
 use thiserror::Error;
 
+// const HEX_SIZE: f32 = 50.0;
+// const INTERSECTION_RADIUS: f32 = HEX_SIZE * 0.12;
+// const INTERSECTION_RADIUS_HIGHLIGHT: f32 = HEX_SIZE * 0.18;
+// const NUMBER_FONT_SIZE: f32 = HEX_SIZE * 0.28;
+// const INTERSECTION_FONT_SIZE: f32 = HEX_SIZE * 0.22;
+
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
+enum Resource {
+    Wood,
+    Brick,
+    Sheep,
+    Wheat,
+    Ore,
+    #[default]
+    Desert,
+}
 #[derive(Clone, Copy, Default)]
 struct Hex {
     id: u8,
@@ -9,6 +26,29 @@ struct Hex {
     r: i32,
     res: Resource,
     num: Option<u8>,
+}
+
+struct Intersection {
+    pos: egui::Pos2,
+    value: u8, //pip sum
+}
+
+struct CatanApp {
+    hexes: Vec<Hex>,
+    selected_hex: usize,
+    import_text: String,
+    import_error: Option<String>,
+}
+
+impl CatanApp {
+    fn new() -> Self {
+        Self {
+            hexes: DEFAULT_HEXES.to_vec(),
+            selected_hex: 0,
+            import_text: String::new(),
+            import_error: None,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -21,17 +61,6 @@ enum InputHexParseError {
     InvalidFormat(usize, String),
     #[error("board must have exactly 19 tiles.")]
     InvalidInputLength,
-}
-
-#[derive(Default, Clone, Copy, Debug, PartialEq)]
-enum Resource {
-    Wood,
-    Brick,
-    Sheep,
-    Wheat,
-    Ore,
-    #[default]
-    Desert,
 }
 
 impl TryInto<Resource> for &str {
@@ -219,10 +248,18 @@ fn number_color(num: u8) -> Color32 {
     }
 }
 
-fn pip_count(num: u8) -> usize {
+fn value_color(value: u8, top: &[u8]) -> Option<Color32> {
+    match top.iter().position(|&v| v == value) {
+        Some(0) => Some(Color32::from_hex("#ffd700").unwrap()),
+        Some(1) => Some(Color32::from_hex("#c0c0c0").unwrap()),
+        Some(2) => Some(Color32::from_hex("#cd7f32").unwrap()),
+        _ => None,
+    }
+}
+
+fn pip_count(num: u8) -> u8 {
     let n = num as i32;
-    let pips = 6 - (n - 7).abs();
-    pips.max(0) as usize
+    (6 - (n - 7).abs()) as u8
 }
 
 fn draw_pips(painter: &egui::Painter, center: Pos2, num: u8, size: f32, color: Color32) {
@@ -276,7 +313,7 @@ fn parse_import(text: &str) -> Result<Vec<Hex>, InputHexParseError> {
                     num: Some(num),
                     q: DEFAULT_HEXES[i].q,
                     r: DEFAULT_HEXES[i].r,
-                }        
+                }
             }
             _ => return Err(InputHexParseError::InvalidFormat(i + 1, entry.to_string())),
         };
@@ -285,22 +322,36 @@ fn parse_import(text: &str) -> Result<Vec<Hex>, InputHexParseError> {
     Ok(result)
 }
 
-struct CatanApp {
-    hexes: Vec<Hex>,
-    selected_hex: usize,
-    import_text: String,
-    import_error: Option<String>,
-}
+fn compute_intersections(hexes: &[Hex], hex_size: f32) -> Vec<Intersection> {
+    let mut raw_points: Vec<(Pos2, u8)> = Vec::new();
 
-impl CatanApp {
-    fn new() -> Self {
-        Self {
-            hexes: DEFAULT_HEXES.to_vec(),
-            selected_hex: 0,
-            import_text: String::new(),
-            import_error: None,
+    for h in hexes {
+        let center = axial_to_pixel(h.q, h.r, hex_size);
+
+        let pips = h.num.map(pip_count).unwrap_or(0);
+
+        for corner in hex_corners(center, hex_size) {
+            raw_points.push((corner, pips));
         }
     }
+
+    let mut intersections: Vec<(Pos2, u8)> = Vec::new();
+    let merge_dist = hex_size * 0.2;
+
+    'outer: for (pos, pips) in raw_points {
+        for (existing_pos, value) in intersections.iter_mut() {
+            if existing_pos.distance(pos) < merge_dist {
+                *value += pips;
+                continue 'outer;
+            }
+        }
+        intersections.push((pos, pips));
+    }
+
+    intersections
+        .into_iter()
+        .map(|(pos, value)| Intersection { pos, value })
+        .collect()
 }
 
 impl eframe::App for CatanApp {
@@ -400,6 +451,42 @@ impl eframe::App for CatanApp {
                     );
 
                     draw_pips(painter, pos, num, hex_size, color);
+                }
+            }
+
+            let intersections = compute_intersections(&self.hexes, hex_size);
+
+            let mut values = BTreeSet::new();
+            for i in &intersections {
+                values.insert(i.value);
+            }
+
+            let top_values: Vec<u8> = values.iter().rev().take(3).cloned().collect();
+
+            for inter in intersections {
+                let pos = inter.pos + center.to_vec2();
+
+                if let Some(color) = value_color(inter.value, &top_values) {
+                    painter.circle_filled(pos, 7.0, color);
+                    painter.circle_stroke(pos, 7.0, Stroke::new(2.0, Color32::BLACK));
+
+                    painter.text(
+                        pos,
+                        egui::Align2::CENTER_CENTER,
+                        inter.value.to_string(),
+                        egui::FontId::proportional(12.0),
+                        Color32::BLACK,
+                    );
+                } else {
+                    painter.circle_filled(pos, 7.0, Color32::BLACK);
+
+                    painter.text(
+                        pos,
+                        egui::Align2::CENTER_CENTER,
+                        inter.value.to_string(),
+                        egui::FontId::proportional(12.0),
+                        Color32::WHITE,
+                    );
                 }
             }
         });
